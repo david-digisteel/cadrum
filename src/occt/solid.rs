@@ -408,6 +408,17 @@ impl SolidStruct for Solid {
 		super::io::read_brep(reader)
 	}
 
+	fn read_brep_text<R: std::io::Read>(reader: &mut R) -> Result<Vec<Self>, Error> {
+		super::io::read_brep_text(reader)
+	}
+
+	fn fix<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a,
+	{
+		super::io::fix(solids)
+	}
+
 	fn write_step<'a, W: std::io::Write>(solids: impl IntoIterator<Item = &'a Self>, writer: &mut W) -> Result<(), Error>
 	where
 		Self: 'a,

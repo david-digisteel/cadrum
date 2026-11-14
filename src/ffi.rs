@@ -9,6 +9,7 @@ mod ffi_bridge {
 		normals: Vec<f64>,  // flat xyz, one per vertex
 		indices: Vec<u32>,
 		face_tshape_ids: Vec<u64>, // per-triangle TShape* address
+		unmeshed_share: f64,       // area share of faces BRepMesh left without triangles
 		success: bool,
 	}
 
@@ -36,6 +37,10 @@ mod ffi_bridge {
 		// when the returned pointer is non-null.
 		fn read_brep_stream(data: &[u8], out_consumed: &mut usize) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
 		fn write_brep_stream(shape: &CxxVector<TopoDS_Solid>, writer: &mut RustWriter) -> Result<()>;
+		// The ASCII `BRepTools` flavour. No colour trailer.
+		fn read_brep_text_stream(data: &[u8]) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
+		// `ShapeFix_Shape` over the solids together.
+		fn fix_shape(shape: &CxxVector<TopoDS_Solid>) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
 
 		// ==================== Shape Constructors ====================
 

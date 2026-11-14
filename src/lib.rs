@@ -248,6 +248,12 @@ impl Solid {
 	pub fn read_brep<R: std::io::Read>(reader: &mut R) -> Result<Vec<crate::Solid>, Error> {
 		<Self as crate::traits::SolidStruct>::read_brep(reader)
 	}
+	pub fn read_brep_text<R: std::io::Read>(reader: &mut R) -> Result<Vec<crate::Solid>, Error> {
+		<Self as crate::traits::SolidStruct>::read_brep_text(reader)
+	}
+	pub fn fix<'a>(solids: impl IntoIterator<Item = &'a crate::Solid>) -> Result<Vec<crate::Solid>, Error> {
+		<Self as crate::traits::SolidStruct>::fix(solids)
+	}
 	pub fn write_step<'a, W: std::io::Write>(solids: impl IntoIterator<Item = &'a crate::Solid>, writer: &mut W) -> Result<(), Error> {
 		<Self as crate::traits::SolidStruct>::write_step(solids, writer)
 	}

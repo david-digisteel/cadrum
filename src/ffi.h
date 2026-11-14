@@ -33,6 +33,8 @@ struct MeshData;
 std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_stream(
     rust::Slice<const uint8_t> data, size_t& out_consumed);
 void write_brep_stream(const std::vector<TopoDS_Solid>& solids, RustWriter& writer);
+std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_text_stream(rust::Slice<const uint8_t> data);
+std::unique_ptr<std::vector<TopoDS_Solid>> fix_shape(const std::vector<TopoDS_Solid>& solids);
 
 // ==================== Shape Constructors ====================
 

@@ -51,6 +51,7 @@
 #include <gp_Pnt2d.hxx>
 #include <gp_Dir2d.hxx>
 #include <ShapeFix_Face.hxx>
+#include <ShapeFix_Shape.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -727,6 +728,7 @@ void shape_bounding_box(const TopoDS_Solid& shape,
 MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, double angular, bool relative) {
     MeshData result;
     result.success = false;
+    result.unmeshed_share = 0.0;
     TopoDS_Compound shape = compound_of(solids);
 
     // BRepMesh_IncrementalMesh(shape, linDeflection, isRelative, angDeflection, isInParallel)
@@ -736,6 +738,9 @@ MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, doub
     }
 
     uint32_t global_vertex_offset = 0;
+    // Faces with nothing to emit. BRepMesh can leave a face without a triangulation and
+    // still report IsDone(); the area they cover is measured below, only when there are any.
+    std::vector<TopoDS_Face> unmeshed;
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
         TopoDS_Face face = TopoDS::Face(explorer.Current());
@@ -754,6 +759,7 @@ MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, doub
         // triangulation at all, or a triangulation with no nodes.
         BRepLib_ToolTriangulatedShape::ComputeNormals(face, triangulation);
         if (triangulation.IsNull() || !triangulation->HasNormals()) {
+            unmeshed.push_back(face);
             continue;
         }
 
@@ -804,6 +810,23 @@ MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, doub
         }
 
         global_vertex_offset += nb_nodes;
+    }
+
+    // The share of the surface the skipped faces cover, so a caller can tell a mesh with
+    // a hole in it from a whole one. Areas are integrated only when a face was skipped.
+    if (!unmeshed.empty()) {
+        auto area_of = [](const TopoDS_Face& f) {
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(f, props);
+            return std::abs(props.Mass());
+        };
+        double total = 0.0;
+        for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
+            total += area_of(TopoDS::Face(explorer.Current()));
+        }
+        double missing = 0.0;
+        for (const TopoDS_Face& f : unmeshed) missing += area_of(f);
+        result.unmeshed_share = total > 0.0 ? missing / total : 0.0;
     }
 
     // BRepMesh stores its triangulation in the caller's faces; drop it so no later call sees it.
@@ -1970,6 +1993,40 @@ std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_stream(
     iss.clear();
     out_consumed = static_cast<size_t>(iss.tellg());
     return solids_of(shape);
+}
+
+std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_text_stream(rust::Slice<const uint8_t> data)
+{
+    // The ASCII BRepTools flavour ("DBRep_DrawableShape ... CASCADE Topology"), which is
+    // what other OCCT-based tools write by default. No colour trailer: text files carry none.
+    std::istringstream iss(
+        std::string(reinterpret_cast<const char*>(data.data()), data.size()));
+
+    TopoDS_Shape shape;
+    BRep_Builder builder;
+    try {
+        BRepTools::Read(shape, iss, builder);
+    } catch (const Standard_Failure& f) {
+        throw std::runtime_error(std::string("BRepTools::Read failed: ") + f.what());
+    }
+    if (shape.IsNull()) throw std::runtime_error("BRepTools::Read produced no shape");
+    return solids_of(shape);
+}
+
+std::unique_ptr<std::vector<TopoDS_Solid>> fix_shape(const std::vector<TopoDS_Solid>& solids)
+{
+    // ShapeFix_Shape over all the solids at once: wire orientation, missing seams,
+    // gaps within tolerance. The general repair, as opposed to the targeted
+    // ShapeFix_Face calls the builders above make on their own results.
+    ShapeFix_Shape fixer(compound_of(solids));
+    try {
+        fixer.Perform();
+    } catch (const Standard_Failure& f) {
+        throw std::runtime_error(std::string("ShapeFix_Shape failed: ") + f.what());
+    }
+    TopoDS_Shape fixed = fixer.Shape();
+    if (fixed.IsNull()) throw std::runtime_error("ShapeFix_Shape produced no shape");
+    return solids_of(fixed);
 }
 
 void write_brep_stream(const std::vector<TopoDS_Solid>& solids, RustWriter& writer) {

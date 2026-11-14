@@ -27,6 +27,11 @@ pub struct Mesh {
 	/// `write_gltf_binary` (the 3D scene / SVG / PNG pipeline derives its own
 	/// silhouette edges and does not read this field).
 	pub edges: Vec<DVec3>,
+	/// Share (0 to 1) of the solids' surface area on faces the mesher left without
+	/// triangles. The mesher can skip a face and still report success, and that face
+	/// is then simply absent here: above zero, this mesh has a hole in it. Healing
+	/// the solids (`Solid::fix`) and meshing again usually closes it.
+	pub unmeshed_share: f64,
 }
 
 /// 2D rendering scene derived from a `Mesh` viewed from a given camera.

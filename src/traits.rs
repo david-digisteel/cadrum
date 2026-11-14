@@ -775,6 +775,21 @@ pub trait SolidStruct: Sized + Clone + Debug + Transform {
 	/// BRep is OCCT's `BinTools` binary format. The ASCII `BRepTools` flavour is not
 	/// supported — see `notes/20260714-BRep_textを捨てて前置マジックに移行.md`.
 	fn read_brep<R: std::io::Read>(reader: &mut R) -> Result<Vec<Self>, Error>;
+	/// Read OCCT's ASCII `BRepTools` flavour (`DBRep_DrawableShape … CASCADE Topology`),
+	/// the default output of other OCCT-based tools. Read-only: this crate still writes
+	/// the binary flavour. Text files carry no colours.
+	fn read_brep_text<R: std::io::Read>(reader: &mut R) -> Result<Vec<Self>, Error>;
+	/// Repair the solids with OCCT's general shape healing (`ShapeFix_Shape`): face wires
+	/// wound the wrong way round, missing seams, gaps within tolerance. Returns the solids
+	/// of the repaired shape, which may differ in number from those given. Colours are
+	/// not carried over.
+	///
+	/// A face whose wires are wound the wrong way bounds the complement of its real
+	/// domain and reports a negative area; the mesher believes it. Testing for that
+	/// before calling keeps a healthy shape untouched.
+	fn fix<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a;
 	fn write_step<'a, W: std::io::Write>(solids: impl IntoIterator<Item = &'a Self>, writer: &mut W) -> Result<(), Error>
 	where
 		Self: 'a;

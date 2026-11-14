@@ -102,6 +102,18 @@ pub(super) fn read_brep<R: Read>(reader: &mut R) -> Result<Vec<Solid>, Error> {
 	Ok(Solid::from_ffi(&solids, &colormap, &[]))
 }
 
+pub(super) fn read_brep_text<R: Read>(reader: &mut R) -> Result<Vec<Solid>, Error> {
+	let mut buf = Vec::new();
+	reader.read_to_end(&mut buf)?;
+	let solids = ffi::read_brep_text_stream(&buf).map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("brep text: {}", e.what()))))?;
+	Ok(Solid::from_ffi(&solids, &Default::default(), &[]))
+}
+
+pub(super) fn fix<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec<Solid>, Error> {
+	let fixed = ffi::fix_shape(&Solid::to_ffi(solids)).map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("fix: {}", e.what()))))?;
+	Ok(Solid::from_ffi(&fixed, &Default::default(), &[]))
+}
+
 /// Write solids to a STEP stream, embedding face and solid colors as AP214 styled items.
 pub(super) fn write_step<'a, W: Write>(solids: impl IntoIterator<Item = &'a Solid>, writer: &mut W) -> Result<(), Error> {
 	let solids: Vec<&Solid> = solids.into_iter().collect();
@@ -189,5 +201,5 @@ pub(super) fn mesh<'a>(solids: impl IntoIterator<Item = &'a Solid>, options: cra
 		map
 	};
 
-	Ok(Mesh { vertices, normals, indices, face_ids, colormap, edges })
+	Ok(Mesh { vertices, normals, indices, face_ids, colormap, edges, unmeshed_share: data.unmeshed_share })
 }

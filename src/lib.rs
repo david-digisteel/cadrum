@@ -31,7 +31,7 @@ pub use common::color::Color;
 pub use common::{
 	boolean::Boolean,
 	error::Error,
-	mesh::{Mesh, Scene2D, SceneOption},
+	mesh::{Mesh, Scene2D, SceneOption, ShapeProperties},
 	surface::{Surface, SurfaceKind},
 };
 // Re-export glam types used in cadrum's public API. Users should reach glam
@@ -253,6 +253,18 @@ impl Solid {
 	}
 	pub fn fix<'a>(solids: impl IntoIterator<Item = &'a crate::Solid>) -> Result<Vec<crate::Solid>, Error> {
 		<Self as crate::traits::SolidStruct>::fix(solids)
+	}
+	pub fn remove_internal_edges<'a>(solids: impl IntoIterator<Item = &'a crate::Solid>) -> Result<Vec<crate::Solid>, Error> {
+		<Self as crate::traits::SolidStruct>::remove_internal_edges(solids)
+	}
+	pub fn fuse<'a>(solids: impl IntoIterator<Item = &'a crate::Solid>) -> Result<Vec<crate::Solid>, Error> {
+		<Self as crate::traits::SolidStruct>::fuse(solids)
+	}
+	pub fn unify<'a>(solids: impl IntoIterator<Item = &'a crate::Solid>, concat_bsplines: bool) -> Result<Vec<crate::Solid>, Error> {
+		<Self as crate::traits::SolidStruct>::unify(solids, concat_bsplines)
+	}
+	pub fn properties<'a>(solids: impl IntoIterator<Item = &'a crate::Solid>, tolerance: f64) -> Result<crate::common::mesh::ShapeProperties, Error> {
+		<Self as crate::traits::SolidStruct>::properties(solids, tolerance)
 	}
 	pub fn write_step<'a, W: std::io::Write>(solids: impl IntoIterator<Item = &'a crate::Solid>, writer: &mut W) -> Result<(), Error> {
 		<Self as crate::traits::SolidStruct>::write_step(solids, writer)

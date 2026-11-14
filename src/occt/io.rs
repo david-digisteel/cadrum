@@ -114,6 +114,31 @@ pub(super) fn fix<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec
 	Ok(Solid::from_ffi(&fixed, &Default::default(), &[]))
 }
 
+fn kernel_error(what: &str, e: cxx::Exception) -> Error {
+	Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{what}: {}", e.what())))
+}
+
+pub(super) fn remove_internal_edges<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec<Solid>, Error> {
+	let out = ffi::remove_internal_edges(&Solid::to_ffi(solids)).map_err(|e| kernel_error("remove internal edges", e))?;
+	Ok(Solid::from_ffi(&out, &Default::default(), &[]))
+}
+
+pub(super) fn fuse<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec<Solid>, Error> {
+	let out = ffi::fuse_solids(&Solid::to_ffi(solids)).map_err(|e| kernel_error("fuse", e))?;
+	Ok(Solid::from_ffi(&out, &Default::default(), &[]))
+}
+
+pub(super) fn unify<'a>(solids: impl IntoIterator<Item = &'a Solid>, concat_bsplines: bool) -> Result<Vec<Solid>, Error> {
+	let out = ffi::unify_solids(&Solid::to_ffi(solids), concat_bsplines).map_err(|e| kernel_error("unify", e))?;
+	Ok(Solid::from_ffi(&out, &Default::default(), &[]))
+}
+
+pub(super) fn properties<'a>(solids: impl IntoIterator<Item = &'a Solid>, tolerance: f64) -> Result<crate::common::mesh::ShapeProperties, Error> {
+	let (mut volume, mut area, mut edges, mut faces) = (0.0, 0.0, 0usize, 0usize);
+	ffi::shape_properties(&Solid::to_ffi(solids), tolerance, &mut volume, &mut area, &mut edges, &mut faces).map_err(|e| kernel_error("properties", e))?;
+	Ok(crate::common::mesh::ShapeProperties { volume, area, edges, faces })
+}
+
 /// Write solids to a STEP stream, embedding face and solid colors as AP214 styled items.
 pub(super) fn write_step<'a, W: Write>(solids: impl IntoIterator<Item = &'a Solid>, writer: &mut W) -> Result<(), Error> {
 	let solids: Vec<&Solid> = solids.into_iter().collect();

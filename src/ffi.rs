@@ -41,6 +41,14 @@ mod ffi_bridge {
 		fn read_brep_text_stream(data: &[u8]) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
 		// `ShapeFix_Shape` over the solids together.
 		fn fix_shape(shape: &CxxVector<TopoDS_Solid>) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
+		// `BRepTools::RemoveInternals`, on a copy, only where an INTERNAL edge exists.
+		fn remove_internal_edges(shape: &CxxVector<TopoDS_Solid>) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
+		// `BRepAlgoAPI_Fuse` one solid after another; faces are left as the union split them.
+		fn fuse_solids(shape: &CxxVector<TopoDS_Solid>) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
+		// `ShapeUpgrade_UnifySameDomain` over the solids together.
+		fn unify_solids(shape: &CxxVector<TopoDS_Solid>, concat_bsplines: bool) -> Result<UniquePtr<CxxVector<TopoDS_Solid>>>;
+		// Integrated volume and area, and the distinct edge and face counts.
+		fn shape_properties(shape: &CxxVector<TopoDS_Solid>, eps: f64, volume: &mut f64, area: &mut f64, edges: &mut usize, faces: &mut usize) -> Result<()>;
 
 		// ==================== Shape Constructors ====================
 

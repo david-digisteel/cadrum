@@ -34,6 +34,19 @@ pub struct Mesh {
 	pub unmeshed_share: f64,
 }
 
+/// What `Solid::properties` measures over a set of solids.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapeProperties {
+	/// Enclosed volume. An open shell contributes none.
+	pub volume: f64,
+	/// Surface area.
+	pub area: f64,
+	/// Distinct edges (an edge shared by two faces counts once).
+	pub edges: usize,
+	/// Distinct faces.
+	pub faces: usize,
+}
+
 /// 2D rendering scene derived from a `Mesh` viewed from a given camera.
 ///
 /// Backend-agnostic intermediate: the projection / shading / silhouette /

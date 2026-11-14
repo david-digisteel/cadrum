@@ -419,6 +419,34 @@ impl SolidStruct for Solid {
 		super::io::fix(solids)
 	}
 
+	fn remove_internal_edges<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a,
+	{
+		super::io::remove_internal_edges(solids)
+	}
+
+	fn fuse<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a,
+	{
+		super::io::fuse(solids)
+	}
+
+	fn unify<'a>(solids: impl IntoIterator<Item = &'a Self>, concat_bsplines: bool) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a,
+	{
+		super::io::unify(solids, concat_bsplines)
+	}
+
+	fn properties<'a>(solids: impl IntoIterator<Item = &'a Self>, tolerance: f64) -> Result<crate::common::mesh::ShapeProperties, Error>
+	where
+		Self: 'a,
+	{
+		super::io::properties(solids, tolerance)
+	}
+
 	fn write_step<'a, W: std::io::Write>(solids: impl IntoIterator<Item = &'a Self>, writer: &mut W) -> Result<(), Error>
 	where
 		Self: 'a,

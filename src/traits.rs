@@ -790,6 +790,31 @@ pub trait SolidStruct: Sized + Clone + Debug + Transform {
 	fn fix<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
 	where
 		Self: 'a;
+	/// Remove what a shape holds with INTERNAL orientation (`BRepTools::RemoveInternals`):
+	/// a layout mark's edges, an outline imprinted on a face without cutting it. Such
+	/// edges bound nothing, and the mesher can fail on a face that carries one. Solids
+	/// with no internal edge come back as they are.
+	fn remove_internal_edges<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a;
+	/// The plain union of the solids, one after another (`BRepAlgoAPI_Fuse`), with the
+	/// faces left in the pieces the union cut them into. Solids that only touch come back
+	/// as fewer solids; separate lumps come back as many as went in. Follow with
+	/// `Solid::unify` to join the pieces. Colours are not carried over.
+	fn fuse<'a>(solids: impl IntoIterator<Item = &'a Self>) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a;
+	/// Join faces of one surface and edges of one curve across the solids
+	/// (`ShapeUpgrade_UnifySameDomain`). `concat_bsplines` also merges neighbouring
+	/// B-spline curves into one. Colours are not carried over.
+	fn unify<'a>(solids: impl IntoIterator<Item = &'a Self>, concat_bsplines: bool) -> Result<Vec<Self>, Error>
+	where
+		Self: 'a;
+	/// Volume and surface area by adaptive integration at relative accuracy `tolerance`,
+	/// and the number of distinct edges and faces, over the solids together.
+	fn properties<'a>(solids: impl IntoIterator<Item = &'a Self>, tolerance: f64) -> Result<crate::common::mesh::ShapeProperties, Error>
+	where
+		Self: 'a;
 	fn write_step<'a, W: std::io::Write>(solids: impl IntoIterator<Item = &'a Self>, writer: &mut W) -> Result<(), Error>
 	where
 		Self: 'a;

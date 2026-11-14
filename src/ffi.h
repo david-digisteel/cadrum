@@ -35,6 +35,11 @@ std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_stream(
 void write_brep_stream(const std::vector<TopoDS_Solid>& solids, RustWriter& writer);
 std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_text_stream(rust::Slice<const uint8_t> data);
 std::unique_ptr<std::vector<TopoDS_Solid>> fix_shape(const std::vector<TopoDS_Solid>& solids);
+std::unique_ptr<std::vector<TopoDS_Solid>> remove_internal_edges(const std::vector<TopoDS_Solid>& solids);
+std::unique_ptr<std::vector<TopoDS_Solid>> fuse_solids(const std::vector<TopoDS_Solid>& solids);
+std::unique_ptr<std::vector<TopoDS_Solid>> unify_solids(const std::vector<TopoDS_Solid>& solids, bool concat_bsplines);
+void shape_properties(const std::vector<TopoDS_Solid>& solids, double eps,
+    double& volume, double& area, size_t& edges, size_t& faces);
 
 // ==================== Shape Constructors ====================
 

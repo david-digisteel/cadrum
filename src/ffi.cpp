@@ -91,6 +91,9 @@
 
 // --- Mesh, classification, mass / surface properties ---
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <TopoDS_Iterator.hxx>
+#include <Geom_Surface.hxx>
 #include <BRepTools.hxx>
 #include <Poly_Triangulation.hxx>
 #include <BRepBndLib.hxx>
@@ -725,11 +728,59 @@ void shape_bounding_box(const TopoDS_Solid& shape,
 
 // ==================== Meshing ====================
 
+// A face may own loose INTERNAL vertices: layout marks pinned to it that cut nothing.
+// BRepMesh asks BRep_Tool::Parameters for each one's (u,v) on the face, and that raises
+// when the vertex carries none, so the whole mesh fails on one mark. A mark bounds
+// nothing: such a face is meshed from a copy holding its wires and none of its loose
+// vertices, and the triangulation is handed to the real face, which BRepMesh then keeps.
+// Only a face with a vertex Parameters refuses is touched.
+static void premesh_loose_vertex_faces(const TopoDS_Shape& shape, double linear, bool relative, double angular) {
+    BRep_Builder builder;
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        TopoDS_Face face = TopoDS::Face(ex.Current());
+        bool unreadable = false;
+        for (TopoDS_Iterator it(face, false, false); it.More() && !unreadable; it.Next()) {
+            if (it.Value().ShapeType() != TopAbs_VERTEX) continue;
+            try {
+                BRep_Tool::Parameters(TopoDS::Vertex(it.Value()), face);
+            } catch (const Standard_Failure&) {
+                unreadable = true;
+            }
+        }
+        if (!unreadable) continue;
+        try {
+            // The same surface and the same face-local location, so the nodes are the
+            // ones the face itself would have produced.
+            TopLoc_Location composed;
+            Handle(Geom_Surface) surface = BRep_Tool::Surface(face, composed);
+            TopLoc_Location shape_loc;
+            BRep_Tool::Triangulation(face, shape_loc);
+            TopLoc_Location surface_loc = composed.Predivided(shape_loc);
+            TopoDS_Face copy;
+            builder.MakeFace(copy, surface, surface_loc, BRep_Tool::Tolerance(face));
+            for (TopoDS_Iterator it(face, false, false); it.More(); it.Next()) {
+                if (it.Value().ShapeType() != TopAbs_VERTEX) builder.Add(copy, it.Value());
+            }
+            BRepMesh_IncrementalMesh mesher(copy, linear, relative, angular, false);
+            TopLoc_Location tri_loc;
+            Handle(Poly_Triangulation) triangulation = BRep_Tool::Triangulation(copy, tri_loc);
+            if (!triangulation.IsNull()) builder.UpdateFace(face, triangulation);
+        } catch (const Standard_Failure&) {
+            // Nothing gained, nothing lost: BRepMesh fails on this face as it would have.
+        }
+    }
+}
+
 MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, double angular, bool relative) {
     MeshData result;
     result.success = false;
     result.unmeshed_share = 0.0;
     TopoDS_Compound shape = compound_of(solids);
+
+    // A file can carry a triangulation of its own, at whatever deflection its writer
+    // chose; BRepMesh would keep it. Mesh from the surfaces, at the deflection asked for.
+    BRepTools::Clean(shape, true);
+    premesh_loose_vertex_faces(shape, linear, relative, angular);
 
     // BRepMesh_IncrementalMesh(shape, linDeflection, isRelative, angDeflection, isInParallel)
     BRepMesh_IncrementalMesh mesher(shape, linear, relative, angular, false);
@@ -798,9 +849,11 @@ MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, doub
 
             // OCC indices are 1-based, convert to 0-based + global offset
             if (reversed) {
+                // The first two corners swapped (2, 1, 3): the same winding as (1, 3, 2),
+                // listed from the corner other OCCT importers list a reversed triangle from.
+                result.indices.push_back(global_vertex_offset + n2 - 1);
                 result.indices.push_back(global_vertex_offset + n1 - 1);
                 result.indices.push_back(global_vertex_offset + n3 - 1);
-                result.indices.push_back(global_vertex_offset + n2 - 1);
             } else {
                 result.indices.push_back(global_vertex_offset + n1 - 1);
                 result.indices.push_back(global_vertex_offset + n2 - 1);
@@ -2027,6 +2080,87 @@ std::unique_ptr<std::vector<TopoDS_Solid>> fix_shape(const std::vector<TopoDS_So
     TopoDS_Shape fixed = fixer.Shape();
     if (fixed.IsNull()) throw std::runtime_error("ShapeFix_Shape produced no shape");
     return solids_of(fixed);
+}
+
+std::unique_ptr<std::vector<TopoDS_Solid>> remove_internal_edges(const std::vector<TopoDS_Solid>& solids)
+{
+    // A face may own INTERNAL edges: a layout mark, an outline imprinted on it without
+    // cutting anything. They bound nothing, and BRepMesh can raise on a face that carries
+    // one. Only a shape that holds one is touched, and then on a copy: RemoveInternals
+    // edits the shape it is given, which the caller's solids share.
+    TopoDS_Compound shape = compound_of(solids);
+    bool internal = false;
+    for (TopExp_Explorer ex(shape, TopAbs_EDGE); ex.More() && !internal; ex.Next()) {
+        internal = ex.Current().Orientation() == TopAbs_INTERNAL;
+    }
+    if (!internal) return solids_of(shape);
+    try {
+        BRepBuilderAPI_Copy copier(shape, true, false);
+        TopoDS_Shape copy = copier.Shape();
+        BRepTools::RemoveInternals(copy, true);
+        return solids_of(copy);
+    } catch (const Standard_Failure& f) {
+        throw std::runtime_error(std::string("RemoveInternals failed: ") + f.what());
+    }
+}
+
+std::unique_ptr<std::vector<TopoDS_Solid>> fuse_solids(const std::vector<TopoDS_Solid>& solids)
+{
+    // The plain union, one solid after another (BRepAlgoAPI_Fuse), with no clean-up of
+    // the faces the union leaves in pieces: `unify_solids` is that step, kept apart so a
+    // caller can judge the union before it is tidied.
+    if (solids.empty()) return std::make_unique<std::vector<TopoDS_Solid>>();
+    try {
+        TopoDS_Shape acc = solids[0];
+        for (size_t i = 1; i < solids.size(); ++i) {
+            BRepAlgoAPI_Fuse op(acc, solids[i]);
+            TopoDS_Shape next = op.Shape();
+            if (next.IsNull()) throw std::runtime_error("BRepAlgoAPI_Fuse produced no shape");
+            acc = next;
+        }
+        return solids_of(acc);
+    } catch (const Standard_Failure& f) {
+        throw std::runtime_error(std::string("BRepAlgoAPI_Fuse failed: ") + f.what());
+    }
+}
+
+std::unique_ptr<std::vector<TopoDS_Solid>> unify_solids(const std::vector<TopoDS_Solid>& solids, bool concat_bsplines)
+{
+    // ShapeUpgrade_UnifySameDomain over the solids together: faces of one surface and
+    // edges of one curve are joined, as after a union that split them.
+    try {
+        ShapeUpgrade_UnifySameDomain unifier(compound_of(solids), true, true, concat_bsplines);
+        unifier.Build();
+        TopoDS_Shape unified = unifier.Shape();
+        if (unified.IsNull()) throw std::runtime_error("UnifySameDomain produced no shape");
+        return solids_of(unified);
+    } catch (const Standard_Failure& f) {
+        throw std::runtime_error(std::string("UnifySameDomain failed: ") + f.what());
+    }
+}
+
+void shape_properties(const std::vector<TopoDS_Solid>& solids, double eps,
+    double& volume, double& area, size_t& edges, size_t& faces)
+{
+    // Volume and area by OCCT's adaptive integration at relative accuracy `eps`, and the
+    // number of DISTINCT edges and faces (an explorer visits a shared edge once per face).
+    // OnlyClosed: an open shell reports no volume instead of an integral over a boundary
+    // that does not close.
+    try {
+        TopoDS_Compound shape = compound_of(solids);
+        GProp_GProps v, a;
+        BRepGProp::VolumeProperties(shape, v, eps, true, false);
+        BRepGProp::SurfaceProperties(shape, a, eps, false);
+        volume = v.Mass();
+        area = a.Mass();
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edge_map, face_map;
+        TopExp::MapShapes(shape, TopAbs_EDGE, edge_map);
+        TopExp::MapShapes(shape, TopAbs_FACE, face_map);
+        edges = static_cast<size_t>(edge_map.Extent());
+        faces = static_cast<size_t>(face_map.Extent());
+    } catch (const Standard_Failure& f) {
+        throw std::runtime_error(std::string("shape properties failed: ") + f.what());
+    }
 }
 
 void write_brep_stream(const std::vector<TopoDS_Solid>& solids, RustWriter& writer) {

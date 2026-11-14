@@ -101,6 +101,22 @@ fn resolve_occt(effective_root: &Path, target: &str) -> Vec<PathBuf> {
 	match find_occt_whitelist(effective_root) {
 		Some(dirs) => return dirs,
 		None => {
+			// A folder named through OCCT_ROOT that already holds something is the user's.
+			// Filling a miss means replacing its contents (the prebuilt path removes the
+			// folder outright), so refuse instead: a hand-built kernel that lacks one of
+			// the entries below would otherwise be swapped for another one in silence.
+			let named = env::var_os("OCCT_ROOT").is_some();
+			let occupied = std::fs::read_dir(effective_root).map(|mut d| d.next().is_some()).unwrap_or(false);
+			if named && occupied {
+				panic!(
+					"\nOCCT_ROOT points at {}, which holds files but is not an OCCT install this build recognises.\n\
+					 Expected in it: headers (`inc`, `include` or `include/opencascade`), libraries (`lib` or\n\
+					 `win64/<compiler>/lib`), an entry whose name contains `OCCT-`, and the LGPL `LICENSE` and\n\
+					 `EXCEPTION` texts. It is left untouched. Complete the folder, or point OCCT_ROOT at an\n\
+					 empty or missing one to have OCCT placed there.\n",
+					effective_root.display()
+				);
+			}
 			#[cfg(feature = "source")]
 			{
 				eprintln!("cargo:warning=OCCT cache miss at {} — building from source (this may take 10-30 minutes)", effective_root.display());
@@ -387,6 +403,19 @@ mod source {
 		super::apply_compiler_flags(|s| {
 			cfg.cxxflag(s);
 		});
+
+		// The cmake crate replaces CMAKE_<LANG>_FLAGS_RELEASE with its own flag list and
+		// leaves the optimisation level to CMAKE_BUILD_TYPE. A Visual Studio generator
+		// takes its per-configuration flags from that replaced variable instead, so an
+		// MSVC "Release" kernel came out with no /O2 at all: meshing ran about 3.5x
+		// slower than the same source built with it. The crate also strips -O flags
+		// found in CFLAGS/CXXFLAGS, so they have to be given here.
+		if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+			for flag in ["/O2", "/Ob2", "/DNDEBUG"] {
+				cfg.cflag(flag);
+				cfg.cxxflag(flag);
+			}
+		}
 
 		let occt_whitelist: Vec<PathBuf> = {
 			let built = cfg.build();

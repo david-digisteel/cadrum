@@ -70,3 +70,46 @@ fn occt_checks_are_compiled_in() {
 	});
 	assert!(message.starts_with("Solid::scale: Standard_ConstructionError"), "{message}");
 }
+
+/// The text sample with its first edge's curve and pcurve taken out: an edge with no
+/// geometry at all, which `BRepAdaptor_Curve` refuses with `Standard_NullObject`.
+fn solid_with_a_bare_edge() -> Solid {
+	let text = std::str::from_utf8(include_bytes!("data/box_with_hole.text.brep")).unwrap();
+	let mut lines: Vec<&str> = text.lines().collect();
+	let edge = lines.iter().position(|l| l.trim() == "Ed").unwrap();
+	assert!(lines[edge + 2].trim_start().starts_with('1') && lines[edge + 3].trim_start().starts_with('2'), "the sample's first edge holds a curve and a pcurve");
+	lines.drain(edge + 2..edge + 4);
+	let mut solids = Solid::read_brep_text(&mut lines.join("\n").as_bytes()).unwrap();
+	assert_eq!(solids.len(), 1);
+	solids.remove(0)
+}
+
+#[test]
+fn an_edge_query_that_raises_is_not_a_plausible_value() {
+	let solid = solid_with_a_bare_edge();
+	let bare: Vec<String> = solid.iter_edge().filter_map(|e| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.start_point())).err()).map(|p| p.downcast_ref::<String>().cloned().unwrap_or_default()).collect();
+	assert_eq!(bare.len(), 1, "{bare:?}");
+	assert!(bare[0].starts_with("Edge::start_point: Standard_NullObject"), "{}", bare[0]);
+	let edge = solid.iter_edge().find(|e| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.end_tangent())).is_err()).expect("the bare edge's tangent raises too");
+	for message in [
+		panic_message(std::panic::AssertUnwindSafe(|| {
+			let _ = edge.approximation_segments(Default::default());
+		})),
+		panic_message(std::panic::AssertUnwindSafe(|| {
+			let _ = edge.project(DVec3::ZERO);
+		})),
+	] {
+		assert!(message.contains("Standard_NullObject"), "{message}");
+	}
+	// The mesher reaches the same edge; it is an error, not a missing polyline.
+	let meshed = Solid::mesh([&solid], Default::default());
+	assert!(matches!(meshed, Err(Error::Kernel(_) | Error::Tesselation)), "{meshed:?}");
+}
+
+#[test]
+fn try_surface_reads_every_face_beside_a_bare_edge() {
+	// The faces' surfaces are untouched: each is elementary, and none raises.
+	let solid = solid_with_a_bare_edge();
+	let kinds: Vec<_> = solid.iter_face().map(|f| f.try_surface()).collect();
+	assert!(kinds.iter().all(|k| matches!(k, Ok(Some(_)))), "{kinds:?}");
+}

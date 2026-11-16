@@ -53,19 +53,23 @@ impl FaceStruct for Face {
 	}
 
 	fn surface(&self) -> Option<Surface> {
+		self.try_surface().unwrap_or_else(|e| panic!("Face::surface: {e}"))
+	}
+
+	fn try_surface(&self) -> Result<Option<Surface>, Error> {
 		let (mut ox, mut oy, mut oz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut zx, mut zy, mut zz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut xx, mut xy, mut xz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut p1, mut p2) = (0.0_f64, 0.0_f64);
-		let kind = match kernel_panic("Face::surface", ffi::face_surface(&self.inner, &mut ox, &mut oy, &mut oz, &mut zx, &mut zy, &mut zz, &mut xx, &mut xy, &mut xz, &mut p1, &mut p2)) {
+		let kind = match ffi::face_surface(&self.inner, &mut ox, &mut oy, &mut oz, &mut zx, &mut zy, &mut zz, &mut xx, &mut xy, &mut xz, &mut p1, &mut p2).map_err(raised("face surface"))? {
 			1 => SurfaceKind::Plane,
 			2 => SurfaceKind::Cylinder { radius: p1 },
 			3 => SurfaceKind::Cone { radius: p1, semi_angle: p2 },
 			4 => SurfaceKind::Sphere { radius: p1 },
 			5 => SurfaceKind::Torus { major_radius: p1, minor_radius: p2 },
-			_ => return None,
+			_ => return Ok(None),
 		};
-		Some(Surface { origin: DVec3::new(ox, oy, oz), axis_z: DVec3::new(zx, zy, zz), axis_x: DVec3::new(xx, xy, xz), kind })
+		Ok(Some(Surface { origin: DVec3::new(ox, oy, oz), axis_z: DVec3::new(zx, zy, zz), axis_x: DVec3::new(xx, xy, xz), kind }))
 	}
 
 	fn area(&self) -> f64 {
@@ -85,9 +89,10 @@ impl FaceStruct for Face {
 	fn project(&self, p: DVec3) -> (DVec3, DVec3) {
 		let (mut cpx, mut cpy, mut cpz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut nx, mut ny, mut nz) = (0.0_f64, 0.0_f64, 0.0_f64);
-		// FFI returns false only when OCCT throws or the face is unbounded: a
-		// bounded face always has a boundary to fall back on.
-		assert!(kernel_panic("Face::project", ffi::face_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut nx, &mut ny, &mut nz)), "Face::project: OCCT threw or the face has no boundary (this is a bug)");
+		// An exception OCCT raises panics with its message. The FFI returns false only
+		// when the face has neither an interior extremum nor a boundary to fall back on,
+		// which a bounded face always has.
+		assert!(kernel_panic("Face::project", ffi::face_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut nx, &mut ny, &mut nz)), "Face::project: the face has no boundary to project onto (this is a bug)");
 		(DVec3::new(cpx, cpy, cpz), DVec3::new(nx, ny, nz))
 	}
 

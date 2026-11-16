@@ -474,8 +474,12 @@ pub trait FaceStruct: Sized + Debug {
 	fn try_area(&self) -> Result<f64, Error>;
 
 	/// The elementary surface this face lies on. `None` for B-spline, Bezier,
-	/// offset and other non-elementary surfaces.
+	/// offset and other non-elementary surfaces. Panics with the kernel's message
+	/// where it raises; `try_surface` returns it instead.
 	fn surface(&self) -> Option<Surface>;
+	/// `surface`, with an exception the kernel raises handed back as `Error::Kernel`
+	/// instead of a panic: `Ok(None)` is a surface that is not elementary, never a failure.
+	fn try_surface(&self) -> Result<Option<Surface>, Error>;
 
 	/// Area-weighted center of the trimmed face, for directional face selection.
 	/// Curved or concave faces place it off the face, and on a closed surface

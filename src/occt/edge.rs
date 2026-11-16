@@ -67,9 +67,9 @@ impl EdgeStruct for Edge {
 	fn project(&self, p: DVec3) -> (DVec3, DVec3) {
 		let (mut cpx, mut cpy, mut cpz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut tx, mut ty, mut tz) = (0.0_f64, 0.0_f64, 0.0_f64);
-		// FFI returns false only when OCCT throws. Degenerate edges (sphere pole,
-		// cone apex) go through the pcurve and yield the point with a zero tangent.
-		assert!(kernel_panic("Edge::project", ffi::edge_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut tx, &mut ty, &mut tz)), "Edge::project: OCCT projector threw (this is a bug)");
+		// Degenerate edges (sphere pole, cone apex) go through the pcurve and yield the
+		// point with a zero tangent; an edge with no geometry at all raises.
+		kernel_panic("Edge::project", ffi::edge_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut tx, &mut ty, &mut tz));
 		(DVec3::new(cpx, cpy, cpz), DVec3::new(tx, ty, tz))
 	}
 

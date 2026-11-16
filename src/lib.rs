@@ -143,6 +143,9 @@ impl Face {
 	pub fn surface(&self) -> Option<Surface> {
 		<Self as crate::traits::FaceStruct>::surface(self)
 	}
+	pub fn try_surface(&self) -> Result<Option<Surface>, Error> {
+		<Self as crate::traits::FaceStruct>::try_surface(self)
+	}
 	pub fn center(&self) -> DVec3 {
 		<Self as crate::traits::FaceStruct>::center(self)
 	}

@@ -14,12 +14,15 @@
 #include <string>
 
 // How cxx turns a C++ exception into the `Err` of a bridge function declared with
-// `Result` (cxx's documented `rust::behavior::trycatch` customisation; it has to be
-// visible before the generated code, which includes this header first). cxx's own version
-// keeps `what()` alone and lets an exception of any other type end the process. This one
-// names an OpenCascade exception's type, since many are raised with no message
-// ("Standard_DomainError" says more than ""), and turns any other exception into an
-// error too.
+// `Result` (cxx's documented `rust::behavior::trycatch` customisation). It MUST be declared
+// before cxx's own: cxx's default disables itself (SFINAE) only when an overload is already
+// visible where its builtin is emitted, and that holds because the generated ffi.rs.cc
+// includes this header first, ahead of the builtins. Moving this out of the bridge's
+// include! header would bring cxx's default back silently. cxx's own version keeps `what()`
+// alone and lets an exception of any other type end the process. This one names an
+// OpenCascade exception's type, since many are raised with no message
+// ("Standard_DomainError" says more than ""), and turns any other exception into an error
+// too. A hardware fault (an access violation) is not a C++ exception and is not caught.
 namespace rust {
 namespace behavior {
 template <typename Try, typename Fail>
@@ -317,9 +320,10 @@ void edge_tangents(const TopoDS_Edge& edge,
 // Smallest distance OCCT treats as zero (Precision::Confusion).
 double precision_confusion();
 
-// Project a world point onto the edge's underlying curve. Returns false if
-// the curve is missing or the projector cannot converge (leaves outputs 0).
-bool edge_project_point(const TopoDS_Edge& edge,
+// Project a world point onto the edge's underlying curve: the nearest point, or the
+// nearer end where the curve has no extremum in its range. Throws where OCCT does
+// (an edge with no geometry).
+void edge_project_point(const TopoDS_Edge& edge,
     double px, double py, double pz,
     double& cpx, double& cpy, double& cpz,
     double& tx, double& ty, double& tz);

@@ -51,6 +51,11 @@ pub enum Error {
 
 	/// B-spline solid (`Solid::bspline`) failed: grid too small, or interpolation/sewing rejected the input.
 	Bspline(String),
+
+	/// OpenCascade raised an exception in a call with no error of its own: a primitive
+	/// (`Solid::try_cube` and the like), a transform, a topology or measure query, or the
+	/// mesher. The message names the call and the exception.
+	Kernel(String),
 }
 
 impl std::fmt::Display for Error {
@@ -73,6 +78,7 @@ impl std::fmt::Display for Error {
 			Error::Sew(msg) => write!(f, "Sew failed: {msg}"),
 			Error::Offset(msg) => write!(f, "Offset failed: {msg}"),
 			Error::Bspline(msg) => write!(f, "Bspline failed: {msg}"),
+			Error::Kernel(msg) => write!(f, "Kernel failed: {msg}"),
 		}
 	}
 }

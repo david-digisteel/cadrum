@@ -150,7 +150,10 @@ impl Default for Tessellation {
 /// same methods as inherent methods on `Solid` / `Edge`, which
 /// `examples/codegen.rs` emits by walking the supertrait chain.
 pub trait Transform: Sized {
+	/// Panics with the kernel's message where it raises; `try_translate` returns it instead.
 	fn translate(self, translation: DVec3) -> Self;
+	/// `translate`, with an exception the kernel raises handed back as `Error::Kernel`.
+	fn try_translate(self, translation: DVec3) -> Result<Self, Error>;
 	fn rotate(self, axis_origin: DVec3, axis_direction: DVec3, angle: f64) -> Self;
 	fn rotate_x(self, angle: f64) -> Self {
 		self.rotate(DVec3::ZERO, DVec3::X, angle)
@@ -464,8 +467,11 @@ pub trait FaceStruct: Sized + Debug {
 	/// meaning beyond equality / hash use.
 	fn id(&self) -> u64;
 
-	/// Area of the trimmed face.
+	/// Area of the trimmed face. Panics with the kernel's message where it raises;
+	/// `try_area` returns it instead.
 	fn area(&self) -> f64;
+	/// `area`, with an exception the kernel raises handed back as `Error::Kernel`.
+	fn try_area(&self) -> Result<f64, Error>;
 
 	/// The elementary surface this face lies on. `None` for B-spline, Bezier,
 	/// offset and other non-elementary surfaces.
@@ -531,20 +537,47 @@ pub trait SolidStruct: Sized + Clone + Debug + Transform {
 	fn id(&self) -> u64;
 
 	// --- Constructors ---
-	fn cube(corner0: DVec3, corner1: DVec3) -> Self;
-	fn sphere(radius: f64) -> Self;
-	fn cylinder(r: f64, height: DVec3) -> Self;
-	fn cone(r1: f64, r2: f64, height: DVec3) -> Self;
-	fn torus(r1: f64, r2: f64, axis: DVec3) -> Self;
-	fn half_space(plane_origin: DVec3, plane_normal: DVec3) -> Self;
+	// Each panics with the kernel's message where it raises (a zero-size box, a zero axis);
+	// its `try_` form returns that as `Error::Kernel` instead.
+	fn cube(corner0: DVec3, corner1: DVec3) -> Self {
+		Self::try_cube(corner0, corner1).unwrap_or_else(|e| panic!("Solid::cube: {e}"))
+	}
+	fn sphere(radius: f64) -> Self {
+		Self::try_sphere(radius).unwrap_or_else(|e| panic!("Solid::sphere: {e}"))
+	}
+	fn cylinder(r: f64, height: DVec3) -> Self {
+		Self::try_cylinder(r, height).unwrap_or_else(|e| panic!("Solid::cylinder: {e}"))
+	}
+	fn cone(r1: f64, r2: f64, height: DVec3) -> Self {
+		Self::try_cone(r1, r2, height).unwrap_or_else(|e| panic!("Solid::cone: {e}"))
+	}
+	fn torus(r1: f64, r2: f64, axis: DVec3) -> Self {
+		Self::try_torus(r1, r2, axis).unwrap_or_else(|e| panic!("Solid::torus: {e}"))
+	}
+	fn half_space(plane_origin: DVec3, plane_normal: DVec3) -> Self {
+		Self::try_half_space(plane_origin, plane_normal).unwrap_or_else(|e| panic!("Solid::half_space: {e}"))
+	}
+	fn try_cube(corner0: DVec3, corner1: DVec3) -> Result<Self, Error>;
+	fn try_sphere(radius: f64) -> Result<Self, Error>;
+	fn try_cylinder(r: f64, height: DVec3) -> Result<Self, Error>;
+	fn try_cone(r1: f64, r2: f64, height: DVec3) -> Result<Self, Error>;
+	fn try_torus(r1: f64, r2: f64, axis: DVec3) -> Result<Self, Error>;
+	fn try_half_space(plane_origin: DVec3, plane_normal: DVec3) -> Result<Self, Error>;
 
 	// --- Topology iteration ---
 	/// Iterate this solid's unique edges. Each OCCT edge appears once even
 	/// when shared between faces. Backends may cache the result internally;
-	/// re-calls are expected to be cheap.
+	/// re-calls are expected to be cheap. Panics with the kernel's message
+	/// where it raises; `try_iter_edge` returns it instead.
 	fn iter_edge(&self) -> impl Iterator<Item = &Self::Edge> + '_;
 	/// Iterate this solid's faces. Backends may cache the result internally.
+	/// Panics with the kernel's message where it raises; `try_iter_face`
+	/// returns it instead.
 	fn iter_face(&self) -> impl Iterator<Item = &Self::Face> + '_;
+	/// `iter_edge`, with an exception the kernel raises handed back as `Error::Kernel`.
+	fn try_iter_edge(&self) -> Result<impl Iterator<Item = &Self::Edge> + '_, Error>;
+	/// `iter_face`, with an exception the kernel raises handed back as `Error::Kernel`.
+	fn try_iter_face(&self) -> Result<impl Iterator<Item = &Self::Face> + '_, Error>;
 	/// Iterate face-derivation pairs `[post_id, src_id]` from the most recent
 	/// boolean operation that produced this Solid (or its source chain, while
 	/// it stays through translate/rotate/color). Empty after primitive/builder

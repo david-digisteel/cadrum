@@ -1,5 +1,6 @@
 use super::edge::{wires_from_edges, Edge};
 use super::ffi;
+use super::{kernel_panic, raised};
 use crate::common::error::Error;
 use crate::common::surface::{Surface, SurfaceKind};
 use crate::traits::FaceStruct;
@@ -56,7 +57,7 @@ impl FaceStruct for Face {
 		let (mut zx, mut zy, mut zz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut xx, mut xy, mut xz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut p1, mut p2) = (0.0_f64, 0.0_f64);
-		let kind = match ffi::face_surface(&self.inner, &mut ox, &mut oy, &mut oz, &mut zx, &mut zy, &mut zz, &mut xx, &mut xy, &mut xz, &mut p1, &mut p2) {
+		let kind = match kernel_panic("Face::surface", ffi::face_surface(&self.inner, &mut ox, &mut oy, &mut oz, &mut zx, &mut zy, &mut zz, &mut xx, &mut xy, &mut xz, &mut p1, &mut p2)) {
 			1 => SurfaceKind::Plane,
 			2 => SurfaceKind::Cylinder { radius: p1 },
 			3 => SurfaceKind::Cone { radius: p1, semi_angle: p2 },
@@ -68,12 +69,16 @@ impl FaceStruct for Face {
 	}
 
 	fn area(&self) -> f64 {
-		ffi::face_surface_area(&self.inner)
+		self.try_area().unwrap_or_else(|e| panic!("Face::area: {e}"))
+	}
+
+	fn try_area(&self) -> Result<f64, Error> {
+		ffi::face_surface_area(&self.inner).map_err(raised("face area"))
 	}
 
 	fn center(&self) -> DVec3 {
 		let (mut x, mut y, mut z) = (0.0_f64, 0.0_f64, 0.0_f64);
-		ffi::face_center_of_mass(&self.inner, &mut x, &mut y, &mut z);
+		kernel_panic("Face::center", ffi::face_center_of_mass(&self.inner, &mut x, &mut y, &mut z));
 		DVec3::new(x, y, z)
 	}
 
@@ -82,11 +87,11 @@ impl FaceStruct for Face {
 		let (mut nx, mut ny, mut nz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		// FFI returns false only when OCCT throws or the face is unbounded: a
 		// bounded face always has a boundary to fall back on.
-		assert!(ffi::face_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut nx, &mut ny, &mut nz), "Face::project: OCCT threw or the face has no boundary (this is a bug)");
+		assert!(kernel_panic("Face::project", ffi::face_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut nx, &mut ny, &mut nz)), "Face::project: OCCT threw or the face has no boundary (this is a bug)");
 		(DVec3::new(cpx, cpy, cpz), DVec3::new(nx, ny, nz))
 	}
 
 	fn iter_edge(&self) -> impl Iterator<Item = &Edge> + '_ {
-		self.edges.get_or_init(|| ffi::face_edges(&self.inner).iter().map(|e_ref| Edge { inner: ffi::clone_edge_handle(e_ref) }).collect()).iter()
+		self.edges.get_or_init(|| kernel_panic("Face::iter_edge", ffi::face_edges(&self.inner)).iter().map(|e_ref| Edge { inner: ffi::clone_edge_handle(e_ref) }).collect()).iter()
 	}
 }

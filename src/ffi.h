@@ -8,6 +8,38 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
+#include <Standard_Failure.hxx>
+
+#include <exception>
+#include <string>
+
+// How cxx turns a C++ exception into the `Err` of a bridge function declared with
+// `Result` (cxx's documented `rust::behavior::trycatch` customisation; it has to be
+// visible before the generated code, which includes this header first). cxx's own version
+// keeps `what()` alone and lets an exception of any other type end the process. This one
+// names an OpenCascade exception's type, since many are raised with no message
+// ("Standard_DomainError" says more than ""), and turns any other exception into an
+// error too.
+namespace rust {
+namespace behavior {
+template <typename Try, typename Fail>
+static void trycatch(Try&& func, Fail&& fail) noexcept try {
+    func();
+} catch (const Standard_Failure& e) {
+    std::string message = e.ExceptionType();
+    const char* what = e.what();
+    if (what != nullptr && *what != '\0') {
+        message += ": ";
+        message += what;
+    }
+    fail(message.c_str());
+} catch (const std::exception& e) {
+    fail(e.what());
+} catch (...) {
+    fail("unknown C++ exception");
+}
+} // namespace behavior
+} // namespace rust
 
 
 namespace cadrum {

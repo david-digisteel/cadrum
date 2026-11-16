@@ -3,6 +3,7 @@
 
 use super::ffi;
 use super::ffi::{RustReader, RustWriter};
+use super::raised;
 use super::solid::Solid;
 use crate::common::error::Error;
 use std::io::{Read, Write};
@@ -43,14 +44,17 @@ fn read_color_trailer(tail: &[u8]) -> std::collections::HashMap<u32, Color> {
 
 /// STEP cannot index like this — `try_sew_orphan_faces` shifts every index, so it
 /// carries explicit ids instead.
-fn trailer_ids(solids: &cxx::CxxVector<ffi::TopoDS_Solid>) -> Vec<u64> {
+fn trailer_ids(solids: &cxx::CxxVector<ffi::TopoDS_Solid>) -> Result<Vec<u64>, Error> {
 	// Every solid first, then every solid's faces in the same solid order.
-	let faces = solids.iter().flat_map(|s| ffi::solid_faces(s).iter().map(ffi::face_tshape_id).collect::<Vec<_>>());
-	solids.iter().map(ffi::solid_tshape_id).chain(faces).collect()
+	let mut ids: Vec<u64> = solids.iter().map(ffi::solid_tshape_id).collect();
+	for s in solids.iter() {
+		ids.extend(ffi::solid_faces(s).map_err(raised("faces"))?.iter().map(ffi::face_tshape_id));
+	}
+	Ok(ids)
 }
 
 fn write_color_trailer<W: Write>(solids: &[&Solid], vec: &cxx::CxxVector<ffi::TopoDS_Solid>, writer: &mut W) -> Result<(), Error> {
-	let id_to_index: std::collections::HashMap<u64, u32> = trailer_ids(vec).into_iter().enumerate().map(|(i, id)| (id, i as u32)).collect();
+	let id_to_index: std::collections::HashMap<u64, u32> = trailer_ids(vec)?.into_iter().enumerate().map(|(i, id)| (id, i as u32)).collect();
 	let colormap: std::collections::HashMap<u64, Color> = solids.iter().flat_map(|s| s.colormap().iter().map(|(&k, &v)| (k, v))).collect();
 	// `Solid::from_ffi` gives every solid a clone of the shared colormap, so a solid
 	// may carry keys of solids not written here; those have no index and drop out.
@@ -84,7 +88,7 @@ pub(super) fn read_step<R: Read>(reader: &mut R) -> Result<Vec<Solid>, Error> {
 	let mut rgb: Vec<f32> = Default::default();
 	let solids = ffi::read_step_color_stream(&mut rust_reader, &mut ids, &mut rgb).map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("step: {}", e.what()))))?;
 	let colormap: std::collections::HashMap<u64, Color> = ids.into_iter().zip(rgb.chunks_exact(3)).map(|(id, c)| (id, Color { r: c[0], g: c[1], b: c[2] })).collect();
-	Ok(Solid::from_ffi(&solids, &colormap, &[]))
+	Solid::from_ffi(&solids, &colormap, &[])
 }
 
 pub(super) fn read_brep<R: Read>(reader: &mut R) -> Result<Vec<Solid>, Error> {
@@ -97,21 +101,21 @@ pub(super) fn read_brep<R: Read>(reader: &mut R) -> Result<Vec<Solid>, Error> {
 	let mut consumed = 0usize;
 	let solids = ffi::read_brep_stream(&buf, &mut consumed).map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("brep: {}", e.what()))))?;
 
-	let ids = trailer_ids(&solids);
+	let ids = trailer_ids(&solids)?;
 	let colormap = read_color_trailer(buf.get(consumed..).unwrap_or_default()).into_iter().filter_map(|(idx, color)| ids.get(idx as usize).map(|&id| (id, color))).collect();
-	Ok(Solid::from_ffi(&solids, &colormap, &[]))
+	Solid::from_ffi(&solids, &colormap, &[])
 }
 
 pub(super) fn read_brep_text<R: Read>(reader: &mut R) -> Result<Vec<Solid>, Error> {
 	let mut buf = Vec::new();
 	reader.read_to_end(&mut buf)?;
 	let solids = ffi::read_brep_text_stream(&buf).map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("brep text: {}", e.what()))))?;
-	Ok(Solid::from_ffi(&solids, &Default::default(), &[]))
+	Solid::from_ffi(&solids, &Default::default(), &[])
 }
 
 pub(super) fn fix<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec<Solid>, Error> {
 	let fixed = ffi::fix_shape(&Solid::to_ffi(solids)).map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("fix: {}", e.what()))))?;
-	Ok(Solid::from_ffi(&fixed, &Default::default(), &[]))
+	Solid::from_ffi(&fixed, &Default::default(), &[])
 }
 
 fn kernel_error(what: &str, e: cxx::Exception) -> Error {
@@ -120,17 +124,17 @@ fn kernel_error(what: &str, e: cxx::Exception) -> Error {
 
 pub(super) fn remove_internal_edges<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec<Solid>, Error> {
 	let out = ffi::remove_internal_edges(&Solid::to_ffi(solids)).map_err(|e| kernel_error("remove internal edges", e))?;
-	Ok(Solid::from_ffi(&out, &Default::default(), &[]))
+	Solid::from_ffi(&out, &Default::default(), &[])
 }
 
 pub(super) fn fuse<'a>(solids: impl IntoIterator<Item = &'a Solid>) -> Result<Vec<Solid>, Error> {
 	let out = ffi::fuse_solids(&Solid::to_ffi(solids)).map_err(|e| kernel_error("fuse", e))?;
-	Ok(Solid::from_ffi(&out, &Default::default(), &[]))
+	Solid::from_ffi(&out, &Default::default(), &[])
 }
 
 pub(super) fn unify<'a>(solids: impl IntoIterator<Item = &'a Solid>, concat_bsplines: bool) -> Result<Vec<Solid>, Error> {
 	let out = ffi::unify_solids(&Solid::to_ffi(solids), concat_bsplines).map_err(|e| kernel_error("unify", e))?;
-	Ok(Solid::from_ffi(&out, &Default::default(), &[]))
+	Solid::from_ffi(&out, &Default::default(), &[])
 }
 
 pub(super) fn properties<'a>(solids: impl IntoIterator<Item = &'a Solid>, tolerance: f64) -> Result<crate::common::mesh::ShapeProperties, Error> {
@@ -177,7 +181,7 @@ pub(super) fn mesh<'a>(solids: impl IntoIterator<Item = &'a Solid>, options: cra
 		let mut map = std::collections::HashMap::new();
 		for s in solids.iter().copied() {
 			if let Some(&c) = s.colormap().get(&s.id()) {
-				for f in ffi::solid_faces(s.inner()).iter() {
+				for f in ffi::solid_faces(s.inner()).map_err(raised("mesh: faces"))?.iter() {
 					map.insert(ffi::face_tshape_id(f), c);
 				}
 			}
@@ -187,7 +191,7 @@ pub(super) fn mesh<'a>(solids: impl IntoIterator<Item = &'a Solid>, options: cra
 		map
 	};
 
-	let data = ffi::mesh_shape(&Solid::to_ffi(solids.iter().copied()), options.deflection_linear, options.deflection_angular, options.relative_linear);
+	let data = ffi::mesh_shape(&Solid::to_ffi(solids.iter().copied()), options.deflection_linear, options.deflection_angular, options.relative_linear).map_err(raised("mesh"))?;
 	if !data.success {
 		return Err(Error::Tesselation);
 	}
@@ -202,9 +206,9 @@ pub(super) fn mesh<'a>(solids: impl IntoIterator<Item = &'a Solid>, options: cra
 	// surface triangulation only; edges use `deflection_linear` as an absolute
 	// chord here.
 	let mut edges: Vec<DVec3> = Vec::new();
-	let solid_edges: Vec<_> = solids.iter().map(|s| ffi::solid_edges(s.inner())).collect();
+	let solid_edges = solids.iter().map(|s| ffi::solid_edges(s.inner())).collect::<Result<Vec<_>, _>>().map_err(raised("mesh: edges"))?;
 	for e in solid_edges.iter().flat_map(|v| v.iter()) {
-		let segs = ffi::edge_approximation_segments(e, options.deflection_linear, options.deflection_angular, options.relative_linear);
+		let segs = ffi::edge_approximation_segments(e, options.deflection_linear, options.deflection_angular, options.relative_linear).map_err(raised("mesh: edge polyline"))?;
 		if segs.len() < 6 {
 			continue; // fewer than 2 points — nothing to draw
 		}

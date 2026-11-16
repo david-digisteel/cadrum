@@ -771,11 +771,24 @@ static void premesh_loose_vertex_faces(const TopoDS_Shape& shape, double linear,
     }
 }
 
+static MeshData mesh_compound(const TopoDS_Compound& shape, double linear, double angular, bool relative);
+
 MeshData mesh_shape(const std::vector<TopoDS_Solid>& solids, double linear, double angular, bool relative) {
+    TopoDS_Compound shape = compound_of(solids);
+    try {
+        return mesh_compound(shape, linear, angular, relative);
+    } catch (...) {
+        // BRepMesh stores its triangulation in the caller's faces; an exception part way
+        // must not leave a partial one there for a later call to keep.
+        BRepTools::Clean(shape);
+        throw;
+    }
+}
+
+static MeshData mesh_compound(const TopoDS_Compound& shape, double linear, double angular, bool relative) {
     MeshData result;
     result.success = false;
     result.unmeshed_share = 0.0;
-    TopoDS_Compound shape = compound_of(solids);
 
     // A file can carry a triangulation of its own, at whatever deflection its writer
     // chose; BRepMesh would keep it. Mesh from the surfaces, at the deflection asked for.

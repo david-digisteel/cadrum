@@ -95,6 +95,9 @@ impl Edge {
 	pub fn translate(self, translation: DVec3) -> crate::Edge {
 		<Self as crate::traits::Transform>::translate(self, translation)
 	}
+	pub fn try_translate(self, translation: DVec3) -> Result<crate::Edge, Error> {
+		<Self as crate::traits::Transform>::try_translate(self, translation)
+	}
 	pub fn rotate(self, axis_origin: DVec3, axis_direction: DVec3, angle: f64) -> crate::Edge {
 		<Self as crate::traits::Transform>::rotate(self, axis_origin, axis_direction, angle)
 	}
@@ -134,6 +137,9 @@ impl Face {
 	pub fn area(&self) -> f64 {
 		<Self as crate::traits::FaceStruct>::area(self)
 	}
+	pub fn try_area(&self) -> Result<f64, Error> {
+		<Self as crate::traits::FaceStruct>::try_area(self)
+	}
 	pub fn surface(&self) -> Option<Surface> {
 		<Self as crate::traits::FaceStruct>::surface(self)
 	}
@@ -170,11 +176,35 @@ impl Solid {
 	pub fn half_space(plane_origin: DVec3, plane_normal: DVec3) -> crate::Solid {
 		<Self as crate::traits::SolidStruct>::half_space(plane_origin, plane_normal)
 	}
+	pub fn try_cube(corner0: DVec3, corner1: DVec3) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::SolidStruct>::try_cube(corner0, corner1)
+	}
+	pub fn try_sphere(radius: f64) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::SolidStruct>::try_sphere(radius)
+	}
+	pub fn try_cylinder(r: f64, height: DVec3) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::SolidStruct>::try_cylinder(r, height)
+	}
+	pub fn try_cone(r1: f64, r2: f64, height: DVec3) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::SolidStruct>::try_cone(r1, r2, height)
+	}
+	pub fn try_torus(r1: f64, r2: f64, axis: DVec3) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::SolidStruct>::try_torus(r1, r2, axis)
+	}
+	pub fn try_half_space(plane_origin: DVec3, plane_normal: DVec3) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::SolidStruct>::try_half_space(plane_origin, plane_normal)
+	}
 	pub fn iter_edge(&self) -> impl Iterator<Item = &Edge> + '_ {
 		<Self as crate::traits::SolidStruct>::iter_edge(self)
 	}
 	pub fn iter_face(&self) -> impl Iterator<Item = &Face> + '_ {
 		<Self as crate::traits::SolidStruct>::iter_face(self)
+	}
+	pub fn try_iter_edge(&self) -> Result<impl Iterator<Item = &Edge> + '_, Error> {
+		<Self as crate::traits::SolidStruct>::try_iter_edge(self)
+	}
+	pub fn try_iter_face(&self) -> Result<impl Iterator<Item = &Face> + '_, Error> {
+		<Self as crate::traits::SolidStruct>::try_iter_face(self)
 	}
 	pub fn iter_history(&self) -> impl Iterator<Item = [u64; 2]> + '_ {
 		<Self as crate::traits::SolidStruct>::iter_history(self)
@@ -281,6 +311,9 @@ impl Solid {
 	}
 	pub fn translate(self, translation: DVec3) -> crate::Solid {
 		<Self as crate::traits::Transform>::translate(self, translation)
+	}
+	pub fn try_translate(self, translation: DVec3) -> Result<crate::Solid, Error> {
+		<Self as crate::traits::Transform>::try_translate(self, translation)
 	}
 	pub fn rotate(self, axis_origin: DVec3, axis_direction: DVec3, angle: f64) -> crate::Solid {
 		<Self as crate::traits::Transform>::rotate(self, axis_origin, axis_direction, angle)

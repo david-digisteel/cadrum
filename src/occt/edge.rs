@@ -1,4 +1,5 @@
 use super::ffi;
+use super::kernel_panic;
 use crate::common::error::Error;
 use crate::traits::{BSplineEnd, EdgeStruct, Transform};
 use glam::DVec3;
@@ -30,28 +31,28 @@ impl EdgeStruct for Edge {
 	fn start_point(&self) -> DVec3 {
 		let (mut sx, mut sy, mut sz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut ex, mut ey, mut ez) = (0.0_f64, 0.0_f64, 0.0_f64);
-		ffi::edge_endpoints(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez);
+		kernel_panic("Edge::start_point", ffi::edge_endpoints(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez));
 		DVec3::new(sx, sy, sz)
 	}
 
 	fn end_point(&self) -> DVec3 {
 		let (mut sx, mut sy, mut sz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut ex, mut ey, mut ez) = (0.0_f64, 0.0_f64, 0.0_f64);
-		ffi::edge_endpoints(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez);
+		kernel_panic("Edge::end_point", ffi::edge_endpoints(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez));
 		DVec3::new(ex, ey, ez)
 	}
 
 	fn start_tangent(&self) -> DVec3 {
 		let (mut sx, mut sy, mut sz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut ex, mut ey, mut ez) = (0.0_f64, 0.0_f64, 0.0_f64);
-		ffi::edge_tangents(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez);
+		kernel_panic("Edge::start_tangent", ffi::edge_tangents(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez));
 		DVec3::new(sx, sy, sz)
 	}
 
 	fn end_tangent(&self) -> DVec3 {
 		let (mut sx, mut sy, mut sz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		let (mut ex, mut ey, mut ez) = (0.0_f64, 0.0_f64, 0.0_f64);
-		ffi::edge_tangents(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez);
+		kernel_panic("Edge::end_tangent", ffi::edge_tangents(&self.inner, &mut sx, &mut sy, &mut sz, &mut ex, &mut ey, &mut ez));
 		DVec3::new(ex, ey, ez)
 	}
 
@@ -60,7 +61,7 @@ impl EdgeStruct for Edge {
 	}
 
 	fn approximation_segments(&self, tessellation: crate::traits::Tessellation) -> Vec<DVec3> {
-		ffi::edge_approximation_segments(&self.inner, tessellation.deflection_linear, tessellation.deflection_angular, tessellation.relative_linear).chunks_exact(3).map(|c| DVec3::new(c[0], c[1], c[2])).collect()
+		kernel_panic("Edge::approximation_segments", ffi::edge_approximation_segments(&self.inner, tessellation.deflection_linear, tessellation.deflection_angular, tessellation.relative_linear)).chunks_exact(3).map(|c| DVec3::new(c[0], c[1], c[2])).collect()
 	}
 
 	fn project(&self, p: DVec3) -> (DVec3, DVec3) {
@@ -68,7 +69,7 @@ impl EdgeStruct for Edge {
 		let (mut tx, mut ty, mut tz) = (0.0_f64, 0.0_f64, 0.0_f64);
 		// FFI returns false only when OCCT throws. Degenerate edges (sphere pole,
 		// cone apex) go through the pcurve and yield the point with a zero tangent.
-		assert!(ffi::edge_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut tx, &mut ty, &mut tz), "Edge::project: OCCT projector threw (this is a bug)");
+		assert!(kernel_panic("Edge::project", ffi::edge_project_point(&self.inner, p.x, p.y, p.z, &mut cpx, &mut cpy, &mut cpz, &mut tx, &mut ty, &mut tz)), "Edge::project: OCCT projector threw (this is a bug)");
 		(DVec3::new(cpx, cpy, cpz), DVec3::new(tx, ty, tz))
 	}
 
@@ -147,7 +148,11 @@ impl EdgeStruct for Edge {
 // on a degenerate axis or plane — a caller bug, so it panics with OCCT's message.
 impl Transform for Edge {
 	fn translate(self, t: DVec3) -> Self {
-		Edge { inner: ffi::translate_edge(&self.inner, t.x, t.y, t.z).unwrap_or_else(|e| panic!("Edge::translate: {}", e.what())) }
+		self.try_translate(t).unwrap_or_else(|e| panic!("Edge::translate: {e}"))
+	}
+
+	fn try_translate(self, t: DVec3) -> Result<Self, Error> {
+		Ok(Edge { inner: ffi::translate_edge(&self.inner, t.x, t.y, t.z).map_err(|e| Error::Kernel(format!("translate: {t:?}: {}", e.what())))? })
 	}
 
 	fn rotate(self, axis_origin: DVec3, axis_direction: DVec3, angle: f64) -> Self {

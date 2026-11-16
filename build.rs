@@ -336,7 +336,7 @@ fn bundle_runtime_libs(occt_lib_dir: &Path, libs: &[&str], prefix: bool) {
 // ---------------------------------------------------------------------------
 #[cfg(feature = "source")]
 mod source {
-	use super::{fetch, find_occt_whitelist, OCCT_SOURCE_SHA256, OCCT_VERSION, OCC_LIBS};
+	use super::{fetch, find_occt_whitelist, BUILD_REVISION, OCCT_SOURCE_SHA256, OCCT_VERSION, OCC_LIBS};
 	use std::env;
 	use std::io::Read;
 	use std::path::{Path, PathBuf};
@@ -352,8 +352,22 @@ mod source {
 	/// `BUILD_RELEASE_DISABLE_EXCEPTIONS` for the CMake build: OFF keeps OCCT's own checks.
 	const DISABLE_EXCEPTIONS: &str = "OFF";
 
+	/// The unified diffs applied to OCCT's sources, in the order they are applied.
+	const PATCHES: [&str; 3] = [include_str!("patches/pr1.patch"), include_str!("patches/pr2.patch"), include_str!("patches/pr3.patch")];
+
+	/// SHA-256 of the patches, line endings made LF first, so a checkout that turns them
+	/// into CRLF stamps the same kernel the same way.
+	fn patches_sha256() -> String {
+		use sha2::Digest;
+		let mut hasher = sha2::Sha256::new();
+		for patch in PATCHES {
+			hasher.update(patch.replace("\r\n", "\n").as_bytes());
+		}
+		hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+	}
+
 	fn build_stamp() -> String {
-		format!("OCCT {OCCT_VERSION}\nsource sha256 {OCCT_SOURCE_SHA256}\nBUILD_RELEASE_DISABLE_EXCEPTIONS={DISABLE_EXCEPTIONS}\n")
+		format!("OCCT {OCCT_VERSION}\nbuild revision {BUILD_REVISION}\nsource sha256 {OCCT_SOURCE_SHA256}\npatches sha256 {}\nBUILD_RELEASE_DISABLE_EXCEPTIONS={DISABLE_EXCEPTIONS}\n", patches_sha256())
 	}
 
 	/// Whether the kernel in `root` was built by this script with its current options.
@@ -387,7 +401,7 @@ mod source {
 		}
 
 		let source_dir = std::fs::read_dir(effective_root).expect("Failed to read effective_root directory").flatten().find(|e| e.file_name().to_string_lossy().starts_with("OCCT") && e.path().is_dir()).map(|e| e.path()).expect("OCCT source directory not found after extraction");
-		let mut patches = patch_from_files(&source_dir, &[include_str!("patches/pr1.patch"), include_str!("patches/pr2.patch"), include_str!("patches/pr3.patch")]);
+		let mut patches = patch_from_files(&source_dir, &PATCHES);
 		walk_occt_sources(&source_dir, |path| {
 			if let Some(patched) = patch_or_none(path) {
 				patches.insert(path.strip_prefix(&source_dir).expect("walked path escapes source_dir").to_path_buf(), patched);

@@ -1928,6 +1928,19 @@ std::unique_ptr<TopoDS_Solid> make_bspline_solid(
 // ==================== Streambuf bridges (ffi.cpp-internal) ====================
 
 // std::streambuf subclass that reads from a Rust `dyn Read` via FFI callback
+// An OpenCascade exception as "Type: message", or the type alone where it carries no
+// message (BinTools::Read raises one so). The wrappers below rethrow it as a
+// std::runtime_error with the step in front, which would otherwise lose the type.
+static std::string described(const Standard_Failure& f) {
+    std::string out = f.ExceptionType();
+    const char* what = f.what();
+    if (what != nullptr && *what != '\0') {
+        out += ": ";
+        out += what;
+    }
+    return out;
+}
+
 class RustReadStreambuf : public std::streambuf {
 public:
     explicit RustReadStreambuf(RustReader& reader) : reader_(reader) {}
@@ -2031,7 +2044,7 @@ std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_stream(
         BinTools::Read(shape, iss);
     } catch (const Standard_Failure& f) {
         // OCCT raises this one without a message; out_consumed stays untouched.
-        throw std::runtime_error(std::string("BinTools::Read failed: ") + f.what());
+        throw std::runtime_error(std::string("BinTools::Read failed: ") + described(f));
     }
     if (shape.IsNull()) throw std::runtime_error("BinTools::Read produced no shape");
 
@@ -2054,7 +2067,7 @@ std::unique_ptr<std::vector<TopoDS_Solid>> read_brep_text_stream(rust::Slice<con
     try {
         BRepTools::Read(shape, iss, builder);
     } catch (const Standard_Failure& f) {
-        throw std::runtime_error(std::string("BRepTools::Read failed: ") + f.what());
+        throw std::runtime_error(std::string("BRepTools::Read failed: ") + described(f));
     }
     if (shape.IsNull()) throw std::runtime_error("BRepTools::Read produced no shape");
     return solids_of(shape);
@@ -2069,7 +2082,7 @@ std::unique_ptr<std::vector<TopoDS_Solid>> fix_shape(const std::vector<TopoDS_So
     try {
         fixer.Perform();
     } catch (const Standard_Failure& f) {
-        throw std::runtime_error(std::string("ShapeFix_Shape failed: ") + f.what());
+        throw std::runtime_error(std::string("ShapeFix_Shape failed: ") + described(f));
     }
     TopoDS_Shape fixed = fixer.Shape();
     if (fixed.IsNull()) throw std::runtime_error("ShapeFix_Shape produced no shape");
@@ -2094,7 +2107,7 @@ std::unique_ptr<std::vector<TopoDS_Solid>> remove_internal_edges(const std::vect
         BRepTools::RemoveInternals(copy, true);
         return solids_of(copy);
     } catch (const Standard_Failure& f) {
-        throw std::runtime_error(std::string("RemoveInternals failed: ") + f.what());
+        throw std::runtime_error(std::string("RemoveInternals failed: ") + described(f));
     }
 }
 
@@ -2114,7 +2127,7 @@ std::unique_ptr<std::vector<TopoDS_Solid>> fuse_solids(const std::vector<TopoDS_
         }
         return solids_of(acc);
     } catch (const Standard_Failure& f) {
-        throw std::runtime_error(std::string("BRepAlgoAPI_Fuse failed: ") + f.what());
+        throw std::runtime_error(std::string("BRepAlgoAPI_Fuse failed: ") + described(f));
     }
 }
 
@@ -2129,7 +2142,7 @@ std::unique_ptr<std::vector<TopoDS_Solid>> unify_solids(const std::vector<TopoDS
         if (unified.IsNull()) throw std::runtime_error("UnifySameDomain produced no shape");
         return solids_of(unified);
     } catch (const Standard_Failure& f) {
-        throw std::runtime_error(std::string("UnifySameDomain failed: ") + f.what());
+        throw std::runtime_error(std::string("UnifySameDomain failed: ") + described(f));
     }
 }
 
@@ -2153,7 +2166,7 @@ void shape_properties(const std::vector<TopoDS_Solid>& solids, double eps,
         edges = static_cast<size_t>(edge_map.Extent());
         faces = static_cast<size_t>(face_map.Extent());
     } catch (const Standard_Failure& f) {
-        throw std::runtime_error(std::string("shape properties failed: ") + f.what());
+        throw std::runtime_error(std::string("shape properties failed: ") + described(f));
     }
 }
 

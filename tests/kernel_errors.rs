@@ -103,7 +103,7 @@ fn an_edge_query_that_raises_is_not_a_plausible_value() {
 	}
 	// The mesher reaches the same edge; it is an error, not a missing polyline.
 	let meshed = Solid::mesh([&solid], Default::default());
-	assert!(matches!(meshed, Err(Error::Kernel(_) | Error::Tesselation)), "{meshed:?}");
+	assert!(matches!(&meshed, Err(Error::Kernel(m)) if m.contains("edge polyline") && m.contains("Standard_NullObject")), "{meshed:?}");
 }
 
 #[test]

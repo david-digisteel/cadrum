@@ -6,6 +6,12 @@ use std::path::{Path, PathBuf};
 /// cache directory name from this.
 const OCCT_VERSION: &str = "V8_0_1";
 
+/// SHA-256 of the source archive GitHub serves for `OCCT_VERSION`'s tag, which the `source`
+/// feature downloads (`https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/<tag>.tar.gz`).
+/// A download that does not match is refused. Update the two together.
+#[cfg(feature = "source")]
+const OCCT_SOURCE_SHA256: &str = "0d6913eae4bcc09a3653ceced6dda1aec11c35a1513d4c06762c9b002092c68a";
+
 /// Build revision for prebuilt tarballs. Update this when making non-OCCT-breaking changes that require cache invalidation (e.g. patch updates, build script changes, EH encoding changes, etc).
 const BUILD_REVISION: &str = "rev4";
 
@@ -251,6 +257,7 @@ fn occt_from_prebuilt(effective_root: &Path, target: &str) -> Option<Vec<PathBuf
 	find_occt_whitelist(effective_root)
 }
 
+#[cfg(not(feature = "source"))]
 fn download_and_extract_tar_gz(url: &str, dest: &Path) -> Result<(), String> {
 	let gz = flate2::read::GzDecoder::new(fetch(url)?);
 	tar::Archive::new(gz).unpack(dest).map_err(|e| format!("tar unpack failed: {e}"))
@@ -313,8 +320,9 @@ fn bundle_runtime_libs(occt_lib_dir: &Path, libs: &[&str], prefix: bool) {
 // ---------------------------------------------------------------------------
 #[cfg(feature = "source")]
 mod source {
-	use super::{download_and_extract_tar_gz, find_occt_whitelist, OCCT_VERSION, OCC_LIBS};
+	use super::{fetch, find_occt_whitelist, OCCT_SOURCE_SHA256, OCCT_VERSION, OCC_LIBS};
 	use std::env;
+	use std::io::Read;
 	use std::path::{Path, PathBuf};
 
 	/// Provide OCCT into `effective_root`: download source, patch, build with CMake, paired with `occt_from_prebuilt` (selected by the `source` feature) in `resolve_occt`.
@@ -328,7 +336,8 @@ mod source {
 
 		if !walkdir::WalkDir::new(effective_root).max_depth(2).into_iter().any(|e| e.ok().is_some_and(|e| e.file_name() == "OCCT_LGPL_EXCEPTION.txt")) {
 			eprintln!("Downloading OCCT {} from {} ...", occt_version, occt_url);
-			download_and_extract_tar_gz(&occt_url, effective_root).expect("Failed to download/extract OCCT source tarball");
+			let archive = download_verified(&occt_url, OCCT_SOURCE_SHA256).unwrap_or_else(|e| panic!("\nOCCT source archive refused: {e}\n"));
+			tar::Archive::new(flate2::read::GzDecoder::new(&archive[..])).unpack(effective_root).expect("Failed to extract OCCT source tarball");
 			eprintln!("OCCT source extracted successfully.");
 		}
 
@@ -455,6 +464,19 @@ mod source {
 			std::fs::write(&path, contents).expect("patched source write failed");
 		}
 		Some(occt_whitelist)
+	}
+
+	/// The whole archive at `url`, refused unless its SHA-256 is `sha256` (lower-case hex):
+	/// the source compiled into every build must be the one the version names.
+	fn download_verified(url: &str, sha256: &str) -> Result<Vec<u8>, String> {
+		use sha2::Digest;
+		let mut archive = Vec::new();
+		fetch(url)?.read_to_end(&mut archive).map_err(|e| format!("download of {url} failed: {e}"))?;
+		let got: String = sha2::Sha256::digest(&archive).iter().map(|b| format!("{b:02x}")).collect();
+		if got != sha256 {
+			return Err(format!("{url} has SHA-256 {got} ({} bytes), expected {sha256}. Nothing was extracted. If OCCT_VERSION was changed on purpose, update OCCT_SOURCE_SHA256 beside it.", archive.len()));
+		}
+		Ok(archive)
 	}
 
 	/// unified diff 群を `source_dir` 下のソースに順に当て、(source_dir 相対パス, 適用後の内容)

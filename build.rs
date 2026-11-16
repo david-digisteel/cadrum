@@ -105,6 +105,22 @@ fn resolve_occt(effective_root: &Path, target: &str) -> Vec<PathBuf> {
 	println!("cargo:rerun-if-changed={}", effective_root.display());
 
 	match find_occt_whitelist(effective_root) {
+		// A source build reuses a kernel only if this build script built it, with the options
+		// it builds with now (the stamp). The default folder's name says nothing of how its
+		// kernel was built: one built before OCCT's checks were kept, or a prebuilt tarball
+		// extracted there, would otherwise be reused in silence. That folder is cadrum's own,
+		// so it is rebuilt; a folder named through OCCT_ROOT is the user's, and is used with
+		// a warning.
+		#[cfg(feature = "source")]
+		Some(dirs) if !source::stamped(effective_root) => {
+			if env::var_os("OCCT_ROOT").is_some() {
+				println!("cargo:warning=OCCT_ROOT {} holds an OCCT this build script did not build with its current options (no matching {}): it may have OCCT's own checks compiled out", effective_root.display(), source::BUILD_STAMP_FILE);
+				return dirs;
+			}
+			println!("cargo:warning=OCCT at {} was not built with this build script's current options: rebuilding it from source", effective_root.display());
+			std::fs::remove_dir_all(effective_root).expect("failed to clear the stale OCCT cache folder");
+			return source::occt_from_source(effective_root).expect(&format!("\nFailed to build OCCT from source for target `{}`.\n", target));
+		}
 		Some(dirs) => return dirs,
 		None => {
 			// A folder named through OCCT_ROOT that already holds something is the user's.
@@ -325,6 +341,26 @@ mod source {
 	use std::io::Read;
 	use std::path::{Path, PathBuf};
 
+	/// Written beside the extracted sources once their archive has passed its checksum.
+	const SOURCE_STAMP_FILE: &str = "cadrum-occt-source.txt";
+
+	/// Written into the install folder once a source build has finished. Its contents
+	/// (`build_stamp`) name the options that change what is compiled; a kernel whose stamp
+	/// does not match is not reused from cadrum's default folder.
+	pub const BUILD_STAMP_FILE: &str = "cadrum-occt-build.txt";
+
+	/// `BUILD_RELEASE_DISABLE_EXCEPTIONS` for the CMake build: OFF keeps OCCT's own checks.
+	const DISABLE_EXCEPTIONS: &str = "OFF";
+
+	fn build_stamp() -> String {
+		format!("OCCT {OCCT_VERSION}\nsource sha256 {OCCT_SOURCE_SHA256}\nBUILD_RELEASE_DISABLE_EXCEPTIONS={DISABLE_EXCEPTIONS}\n")
+	}
+
+	/// Whether the kernel in `root` was built by this script with its current options.
+	pub fn stamped(root: &Path) -> bool {
+		std::fs::read_to_string(root.join(BUILD_STAMP_FILE)).is_ok_and(|s| s.replace("\r\n", "\n") == build_stamp())
+	}
+
 	/// Provide OCCT into `effective_root`: download source, patch, build with CMake, paired with `occt_from_prebuilt` (selected by the `source` feature) in `resolve_occt`.
 	pub fn occt_from_source(effective_root: &Path) -> Option<Vec<PathBuf>> {
 		if let Some(dirs) = find_occt_whitelist(effective_root) {
@@ -334,10 +370,19 @@ mod source {
 		let occt_version = OCCT_VERSION;
 		let occt_url = format!("https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/{}.tar.gz", occt_version);
 
-		if !walkdir::WalkDir::new(effective_root).max_depth(2).into_iter().any(|e| e.ok().is_some_and(|e| e.file_name() == "OCCT_LGPL_EXCEPTION.txt")) {
+		// An extraction left by an interrupted build is reused only if its archive was checked:
+		// the stamp is written after a verified extraction, and names the checksum it passed.
+		let verified = std::fs::read_to_string(effective_root.join(SOURCE_STAMP_FILE)).is_ok_and(|s| s.trim() == OCCT_SOURCE_SHA256);
+		if !verified {
+			for entry in std::fs::read_dir(effective_root).into_iter().flatten().flatten() {
+				if entry.file_name().to_string_lossy().starts_with("OCCT") && entry.path().is_dir() {
+					std::fs::remove_dir_all(entry.path()).expect("failed to clear an unverified OCCT source tree");
+				}
+			}
 			eprintln!("Downloading OCCT {} from {} ...", occt_version, occt_url);
 			let archive = download_verified(&occt_url, OCCT_SOURCE_SHA256).unwrap_or_else(|e| panic!("\nOCCT source archive refused: {e}\n"));
 			tar::Archive::new(flate2::read::GzDecoder::new(&archive[..])).unpack(effective_root).expect("Failed to extract OCCT source tarball");
+			std::fs::write(effective_root.join(SOURCE_STAMP_FILE), OCCT_SOURCE_SHA256).expect("failed to write the source stamp");
 			eprintln!("OCCT source extracted successfully.");
 		}
 
@@ -393,7 +438,7 @@ mod source {
 			// (OCCT's default) every `*_Raise_if` compiles to nothing (`No_Exception`), so a
 			// zero direction or an index out of range is not reported: the algorithm runs on
 			// with it. OFF, it raises, and the bridge hands the exception to Rust as an error.
-			.define("BUILD_RELEASE_DISABLE_EXCEPTIONS", "OFF")
+			.define("BUILD_RELEASE_DISABLE_EXCEPTIONS", DISABLE_EXCEPTIONS)
 			.define("CMAKE_RC_FLAGS_INIT", "-C 1252");
 
 		// cmake クレートは cc-rs の CC_<target>/CXX_<target> を CMAKE_C/CXX_COMPILER へ転送しない。
@@ -463,6 +508,8 @@ mod source {
 			std::fs::create_dir_all(path.parent().unwrap()).expect("failed to create patched source dir");
 			std::fs::write(&path, contents).expect("patched source write failed");
 		}
+		// Last, so an interrupted build leaves no stamp and is rebuilt.
+		std::fs::write(effective_root.join(BUILD_STAMP_FILE), build_stamp()).expect("failed to write the build stamp");
 		Some(occt_whitelist)
 	}
 

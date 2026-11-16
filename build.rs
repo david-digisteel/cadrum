@@ -380,6 +380,11 @@ mod source {
 			.define("BUILD_SAMPLES_QT", "OFF")
 			.define("BUILD_Inspector", "OFF")
 			.define("BUILD_ENABLE_FPE_SIGNAL_HANDLER", "OFF")
+			// Keep OCCT's own argument and range checks in the Release build. With this ON
+			// (OCCT's default) every `*_Raise_if` compiles to nothing (`No_Exception`), so a
+			// zero direction or an index out of range is not reported: the algorithm runs on
+			// with it. OFF, it raises, and the bridge hands the exception to Rust as an error.
+			.define("BUILD_RELEASE_DISABLE_EXCEPTIONS", "OFF")
 			.define("CMAKE_RC_FLAGS_INIT", "-C 1252");
 
 		// cmake クレートは cc-rs の CC_<target>/CXX_<target> を CMAKE_C/CXX_COMPILER へ転送しない。

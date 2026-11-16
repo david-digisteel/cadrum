@@ -58,3 +58,15 @@ fn a_valid_call_through_the_try_forms_matches_the_infallible_one() {
 	let cylinder = Solid::try_cylinder(1.0, DVec3::new(0.0, 0.0, 3.0)).unwrap();
 	assert!((cylinder.volume() - 3.0 * std::f64::consts::PI).abs() < 1e-9);
 }
+
+// A check inside OpenCascade's compiled code (gp_Trsf::SetScale in TKMath), not in a header
+// the bridge compiles: it raises only when OCCT is built with BUILD_RELEASE_DISABLE_EXCEPTIONS
+// off, as the `source` feature builds it. The prebuilt kernels predate that.
+#[test]
+#[cfg_attr(not(feature = "source"), ignore = "needs an OCCT built with its checks compiled in (the source feature)")]
+fn occt_checks_are_compiled_in() {
+	let message = panic_message(|| {
+		Solid::cube(DVec3::ZERO, DVec3::ONE).scale(DVec3::ZERO, 0.0);
+	});
+	assert!(message.starts_with("Solid::scale: Standard_ConstructionError"), "{message}");
+}
